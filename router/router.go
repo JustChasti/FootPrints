@@ -6,9 +6,10 @@ import (
 
 	"footprints/services/auth"
 	"footprints/services/tasks"
+	"footprints/services/users"
 )
 
-func Setup(app *fiber.App, swaggerJSON []byte) {
+func Setup(app *fiber.App, swaggerJSON []byte, authSvc *auth.Service, tasksSvc *tasks.Service, usersSvc *users.Service) {
 	app.Use(swaggerui.New(swaggerui.Config{
 		BasePath:    "/",
 		Path:        "swagger",
@@ -18,13 +19,17 @@ func Setup(app *fiber.App, swaggerJSON []byte) {
 	v1 := app.Group("/api/v1")
 
 	authGroup := v1.Group("/auth")
-	authGroup.Post("/register", auth.Register)
-	authGroup.Post("/login", auth.Login)
+	authGroup.Post("/register", authSvc.Register)
+	authGroup.Post("/login", authSvc.Login)
 
-	tasksGroup := v1.Group("/tasks")
-	tasksGroup.Post("", tasks.Create)
-	tasksGroup.Get("", tasks.List)
-	tasksGroup.Get("/:id", tasks.Get)
-	tasksGroup.Put("/:id", tasks.Update)
-	tasksGroup.Delete("/:id", tasks.Delete)
+	tasksGroup := v1.Group("/tasks", authSvc.Require)
+	tasksGroup.Post("", tasksSvc.Create)
+	tasksGroup.Get("", tasksSvc.List)
+	tasksGroup.Get("/:id", tasksSvc.Get)
+	tasksGroup.Put("/:id", tasksSvc.Update)
+	tasksGroup.Delete("/:id", tasksSvc.Delete)
+
+	usersGroup := v1.Group("/users", authSvc.Require)
+	usersGroup.Get("", usersSvc.List)
+	usersGroup.Get("/:id", usersSvc.Get)
 }
