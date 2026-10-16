@@ -30,6 +30,7 @@ models/db/     сущности базы, они же тела запросов 
 models/api/    тела запросов и ответов, которых нет в db (регистрация, вход, пользователь, ошибка)
 domains/       бизнес-логика: пароли и JWT, шифрование токена Bitbucket, работа с таблицами
 docs/          swagger.json, генерируется
+Dockerfile     сборка образа, swagger.json генерируется внутри
 ```
 
 ### Настройки
@@ -50,6 +51,23 @@ docs/          swagger.json, генерируется
 `docs/swagger.json` генерируется по swag-аннотациям и лежит в `.gitignore`, в репозиторий его не кладём. Бинарник вшивает файл через `go:embed`, поэтому без него `go build` падает с ошибкой `no matching files found`. Генерацию нужно запускать после клонирования и после любого изменения аннотаций или моделей. Для неё нужна утилита `swag`: `go install github.com/swaggo/swag/cmd/swag@v1.16.4`
 
 Если WSL закрывает машину по простою, контейнер останавливается. Лечится параметром `vmIdleTimeout=-1` в `%UserProfile%\.wslconfig` (секция `[wsl2]`)
+
+### Docker
+
+Образ собирается в два этапа (`Dockerfile`). В сборочном `go generate` запускает `swag` и создаёт `docs/swagger.json`, поэтому на машине сборки не нужны ни `swag`, ни сгенерированный файл. Итоговый образ это один статический бинарник на Alpine, процесс идёт под uid 10001, пишет только в базу и в сеть, корневая файловая система может быть только на чтение. `.env` в образ не попадает (`.dockerignore`), настройки приходят переменными окружения
+
+```
+docker build -t footprints .
+docker run -d --name footprints -p 8080:8080 \
+  -e PG_HOST=<хост базы> -e PG_PASSWORD=... -e AUTH_JWT_SECRET=... -e AUTH_ENC_KEY=... \
+  footprints
+```
+
+Если база запущена в Docker на той же машине, оба контейнера кладут в одну сеть (`docker network create`, `--network`), а в `PG_HOST` указывают имя контейнера базы
+
+В закрытом контуре модули Go берутся через `--build-arg GOPROXY=<внутренний прокси>`, а образы в `FROM` (`golang:1.26.8-alpine`, `alpine:3.21`) меняются на адреса внутреннего реестра. Окна тасок считаются во времени сервера, в контейнере это UTC, пояс задаётся переменной `TZ` (например `-e TZ=Europe/Moscow`), база часовых поясов вшита в бинарник тегом сборки `timetzdata`
+
+Swagger UI (`/swagger`) подтягивает скрипты и стили с `unpkg.com`, без доступа в интернет страница остаётся пустой. Сама спецификация отдаётся по `/swagger.json` и от интернета не зависит
 
 ### API
 
@@ -119,6 +137,7 @@ Authorization: Bearer <токен инженера>
 - Заголовок вкладки Swagger UI сейчас «Fiber API documentation» (значение по умолчанию библиотеки). Меняется полем `Title` в `swaggerui.Config`, файл `router/router.go`
 - Очистка записей `planned_commits` старше двух месяцев, иначе они копятся. После неё `done_commits`, `failed_commits` и `last_run_at` будут показывать только последние два месяца
 - Cookie с JWT выдаётся без флага `Secure`, это нужно только для работы по `http://localhost`. Когда сервис поедет за HTTPS, добавить `Secure: true` в `fiber.Cookie`, файл `services/auth/auth.go`
+- Swagger UI зависит от `unpkg.com`. В `swaggerui.Config` есть поля `SwaggerURL`, `SwaggerPresetURL`, `SwaggerStylesURL`, `Favicon32` и `Favicon16`: ими можно указать внутреннее зеркало или раздавать файлы самим из бинарника, файл `router/router.go`
 - Bitbucket Cloud не поддерживается. Его API другой (`POST /2.0/repositories/{workspace}/{repo}/src`), а личный API-токен Atlassian (`ATATT3...`) принимается только как Basic `email:токен`, Bearer даёт 401
 - Валидация `repo_url` в API: сейчас проходит любой http(s) адрес, а нерабочий виден только в `error` записи после попытки коммита
 

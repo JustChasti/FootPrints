@@ -1,0 +1,10 @@
+.git
+.env
+api-key.txt
+docs/swagger.json
+specs
+reference
+*.md
+*.exe
+Dockerfile
+.dockerignore
