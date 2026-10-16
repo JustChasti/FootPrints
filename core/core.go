@@ -13,12 +13,17 @@ import (
 // Core это фоновая горутина: раз в период планирует коммиты тасок на день и
 // запускает те, чьё время пришло
 type Core struct {
-	db   *gorm.DB
-	step time.Duration // период опроса и шаг сетки времён коммитов
+	db         *gorm.DB
+	step       time.Duration // период опроса и шаг сетки времён коммитов
+	apiVersion string        // версия REST API Bitbucket в пути запроса
+	decrypt    func([]byte) (string, error)
+	bb         *bitbucket
 }
 
-func New(gdb *gorm.DB, step time.Duration) *Core {
-	return &Core{db: gdb, step: step}
+// New принимает период опроса, версию REST API Bitbucket и функцию, которая
+// расшифровывает токен Bitbucket из базы
+func New(gdb *gorm.DB, step time.Duration, apiVersion string, decrypt func([]byte) (string, error)) *Core {
+	return &Core{db: gdb, step: step, apiVersion: apiVersion, decrypt: decrypt, bb: newBitbucket()}
 }
 
 // Run крутит опросы, пока не отменён ctx. Первый опрос сразу, дальше на точках
@@ -134,12 +139,13 @@ func (c *Core) execute(rec db.PlannedCommit, now time.Time) {
 	}
 
 	executedAt := time.Now()
-	if err := push(task); err != nil {
+	commitID, err := c.push(task)
+	if err != nil {
 		slog.Error("push failed", "commit", rec.ID, "task", task.ID, "err", err)
 		c.finish(rec.ID, map[string]any{"status": db.StatusFailed, "executed_at": executedAt, "error": err.Error()})
 		return
 	}
-	c.finish(rec.ID, map[string]any{"status": db.StatusDone, "executed_at": executedAt})
+	c.finish(rec.ID, map[string]any{"status": db.StatusDone, "executed_at": executedAt, "commit_id": commitID})
 }
 
 // finish записывает итог по записи. Если запись не удалось сохранить, она

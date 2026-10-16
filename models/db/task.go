@@ -37,7 +37,7 @@ func (c Clock) At(day time.Time) (time.Time, error) {
 // TaskParams это поля таски, которые задаёт инженер. Одна структура служит
 // и телом запроса, и частью сущности базы
 type TaskParams struct {
-	RepoURL       string   `json:"repo_url"        gorm:"not null" example:"https://bitbucket.org/team/repo"`
+	RepoURL       string   `json:"repo_url"        gorm:"not null" example:"https://bitbucket.example.com/projects/PROJ/repos/my-repo/browse"`
 	Branch        string   `json:"branch"          gorm:"not null" example:"main"`
 	CommitName    string   `json:"commit_name"     gorm:"not null" example:"PROJ-123 fix typo"`
 	Days          Weekdays `json:"days"            gorm:"type:jsonb;serializer:json;not null" swaggertype:"array,integer" example:"1,2,3,4,5"`

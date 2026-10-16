@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -124,11 +125,27 @@ func (a *Auth) session(user db.User) (*Session, error) {
 	return &Session{UserID: user.ID, Login: user.Login, Token: token, ExpiresAt: exp}, nil
 }
 
-// encrypt шифрует AES-GCM, случайный nonce лежит в начале результата
+// encrypt шифрует токен Bitbucket для хранения в базе (AES-GCM), случайный
+// nonce лежит в начале результата. Запросы к Bitbucket сервис не шифрует, их
+// защищает HTTPS
 func (a *Auth) encrypt(plain []byte) []byte {
 	nonce := make([]byte, a.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		panic(err) // crypto/rand не возвращает ошибку на поддерживаемых платформах
 	}
 	return a.aead.Seal(nonce, nonce, plain, nil)
+}
+
+// DecryptToken расшифровывает токен Bitbucket, сохранённый в базе функцией
+// encrypt. Нужна ядру на время одного запроса к Bitbucket
+func (a *Auth) DecryptToken(enc []byte) (string, error) {
+	n := a.aead.NonceSize()
+	if len(enc) < n {
+		return "", errors.New("encrypted token is too short")
+	}
+	plain, err := a.aead.Open(nil, enc[:n], enc[n:], nil)
+	if err != nil {
+		return "", fmt.Errorf("decrypt token: %w", err)
+	}
+	return string(plain), nil
 }

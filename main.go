@@ -54,7 +54,7 @@ func main() {
 	coreDone := make(chan struct{})
 	go func() {
 		defer close(coreDone)
-		core.New(gdb, cfg.Core.TickInterval).Run(ctx)
+		core.New(gdb, cfg.Core.TickInterval, cfg.Bitbucket.APIVersion, authDomain.DecryptToken).Run(ctx)
 	}()
 
 	app := fiber.New()

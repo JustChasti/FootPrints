@@ -22,6 +22,8 @@ type Config struct {
 	PG   PGSettings
 	API  APISettings
 	Core CoreSettings
+
+	Bitbucket BitbucketSettings
 }
 
 // TaskSettings это значения по умолчанию для полей таски, которые не пришли в запросе
@@ -89,6 +91,13 @@ type CoreSettings struct {
 	TickInterval time.Duration
 }
 
+// BitbucketSettings это настройки обращения к REST API Bitbucket Server
+type BitbucketSettings struct {
+	// APIVersion подставляется в путь /rest/api/<версия>/ как есть
+	// (BITBUCKET_API_VERSION)
+	APIVersion string
+}
+
 // Load читает .env (если файла нет, переменные берутся из окружения) и
 // накладывает их на значения по умолчанию
 func Load() (*Config, error) {
@@ -113,6 +122,8 @@ func Load() (*Config, error) {
 		},
 		API:  APISettings{Host: "0.0.0.0", Port: 8080},
 		Core: CoreSettings{TickInterval: 10 * time.Minute},
+
+		Bitbucket: BitbucketSettings{APIVersion: "1.0"},
 	}
 
 	var errs []error
@@ -134,6 +145,8 @@ func Load() (*Config, error) {
 	collect(envInt("API_PORT", &cfg.API.Port))
 
 	collect(envDuration("CORE_TICK_INTERVAL", &cfg.Core.TickInterval))
+
+	envString("BITBUCKET_API_VERSION", &cfg.Bitbucket.APIVersion)
 
 	envString("AUTH_JWT_SECRET", &cfg.Auth.JWTSecret)
 

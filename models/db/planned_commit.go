@@ -22,4 +22,6 @@ type PlannedCommit struct {
 	Status     CommitStatus `gorm:"not null;default:planned"`
 	ExecutedAt *time.Time
 	Error      string `gorm:"not null;default:''"`
+	// CommitID это id коммита в Bitbucket, пусто пока коммита нет
+	CommitID string `gorm:"not null;default:''"`
 }
