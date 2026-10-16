@@ -37,7 +37,7 @@ func open(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := gdb.AutoMigrate(&User{}, &Task{}); err != nil {
+	if err := gdb.AutoMigrate(&User{}, &Task{}, &PlannedCommit{}); err != nil {
 		if sqlDB, e := gdb.DB(); e == nil {
 			sqlDB.Close()
 		}

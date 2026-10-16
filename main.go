@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"log"
 	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/gofiber/fiber/v3"
 
 	"footprints/config"
+	"footprints/core"
 	"footprints/domains"
 	"footprints/models/db"
 	"footprints/router"
@@ -41,11 +46,31 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// сигнал остановки доходит и до сервера, и до ядра
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// ядро живёт в фоне, веб-сервер вокруг него
+	coreDone := make(chan struct{})
+	go func() {
+		defer close(coreDone)
+		core.New(gdb, cfg.Core.TickInterval).Run(ctx)
+	}()
+
 	app := fiber.New()
 	router.Setup(app, swaggerJSON,
 		auth.New(authDomain),
 		tasks.New(domains.NewTasks(gdb, cfg.Task)),
 		users.New(domains.NewUsers(gdb)),
 	)
-	log.Fatal(app.Listen(cfg.API.Addr()))
+	err = app.Listen(cfg.API.Addr(), fiber.ListenConfig{GracefulContext: ctx})
+
+	// Listen вернулся: по сигналу или с ошибкой (например, порт занят).
+	// Останавливаем ядро и ждём, пока оно закончит текущий пуш
+	stop()
+	<-coreDone
+	if err != nil {
+		log.Fatal(err)
+	}
+	slog.Info("stopped")
 }

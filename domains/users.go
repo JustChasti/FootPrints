@@ -2,10 +2,12 @@ package domains
 
 import (
 	"context"
+	"errors"
 
 	"gorm.io/gorm"
 
 	"footprints/models/api"
+	"footprints/models/db"
 )
 
 type Users struct {
@@ -16,28 +18,42 @@ func NewUsers(gdb *gorm.DB) *Users {
 	return &Users{db: gdb}
 }
 
-// query отдаёт пользователей с числом их тасок
-func (u *Users) query(ctx context.Context) *gorm.DB {
-	return u.db.WithContext(ctx).Table("users").
-		Select("users.id, users.login, count(tasks.id) AS tasks_count").
-		Joins("LEFT JOIN tasks ON tasks.user_id = users.id").
-		Group("users.id").
-		Order("users.id")
-}
-
 func (u *Users) List(ctx context.Context) ([]api.UserInfo, error) {
-	users := []api.UserInfo{}
-	err := u.query(ctx).Scan(&users).Error
-	return users, err
+	var users []db.User
+	if err := u.db.WithContext(ctx).Order("id").Find(&users).Error; err != nil {
+		return nil, err
+	}
+
+	// число тасок считаем в Go: достаточно списка владельцев всех тасок
+	var owners []int64
+	if err := u.db.WithContext(ctx).Model(&db.Task{}).Pluck("user_id", &owners).Error; err != nil {
+		return nil, err
+	}
+	counts := make(map[int64]int64, len(users))
+	for _, id := range owners {
+		counts[id]++
+	}
+
+	infos := make([]api.UserInfo, 0, len(users))
+	for _, user := range users {
+		infos = append(infos, api.UserInfo{ID: user.ID, Login: user.Login, TasksCount: counts[user.ID]})
+	}
+	return infos, nil
 }
 
 func (u *Users) Get(ctx context.Context, id int64) (*api.UserInfo, error) {
-	users := []api.UserInfo{}
-	if err := u.query(ctx).Where("users.id = ?", id).Scan(&users).Error; err != nil {
-		return nil, err
-	}
-	if len(users) == 0 {
+	var user db.User
+	err := u.db.WithContext(ctx).First(&user, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
-	return &users[0], nil
+	if err != nil {
+		return nil, err
+	}
+
+	var count int64
+	if err := u.db.WithContext(ctx).Model(&db.Task{}).Where("user_id = ?", id).Count(&count).Error; err != nil {
+		return nil, err
+	}
+	return &api.UserInfo{ID: user.ID, Login: user.Login, TasksCount: count}, nil
 }

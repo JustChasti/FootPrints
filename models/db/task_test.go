@@ -3,6 +3,7 @@ package db
 import (
 	"slices"
 	"testing"
+	"time"
 )
 
 func validParams() TaskParams {
@@ -75,4 +76,69 @@ func TestValidateNormalizes(t *testing.T) {
 	if p.StartTime != "09:00" || p.EndTime != "18:05" {
 		t.Errorf("time is not normalized: %q %q", p.StartTime, p.EndTime)
 	}
+}
+
+func TestClockAt(t *testing.T) {
+	loc := time.FixedZone("test", 3*3600)
+	day := time.Date(2026, 10, 14, 23, 59, 59, 123, loc)
+
+	for in, want := range map[Clock]time.Time{
+		"09:00": time.Date(2026, 10, 14, 9, 0, 0, 0, loc),
+		"9:05":  time.Date(2026, 10, 14, 9, 5, 0, 0, loc),
+		"18:30": time.Date(2026, 10, 14, 18, 30, 0, 0, loc),
+	} {
+		got, err := in.At(day)
+		if err != nil {
+			t.Fatalf("%q: unexpected error: %v", in, err)
+		}
+		if !got.Equal(want) || got.Location() != loc {
+			t.Errorf("%q: got %v, want %v", in, got, want)
+		}
+	}
+
+	for _, bad := range []Clock{"", "abc", "25:00", "18:60"} {
+		if _, err := bad.At(day); err == nil {
+			t.Errorf("%q: expected an error", bad)
+		}
+	}
+}
+
+func TestFillStats(t *testing.T) {
+	at := func(h int) *time.Time {
+		v := time.Date(2026, 10, 14, h, 0, 0, 0, time.UTC)
+		return &v
+	}
+
+	t.Run("no commits", func(t *testing.T) {
+		task := Task{DoneCommits: 5, FailedCommits: 5, LastRunAt: at(1)}
+		task.FillStats()
+		if task.DoneCommits != 0 || task.FailedCommits != 0 || task.LastRunAt != nil {
+			t.Errorf("stats are not reset: %+v", task)
+		}
+	})
+
+	t.Run("mixed", func(t *testing.T) {
+		task := Task{PlannedCommits: []PlannedCommit{
+			{Status: StatusDone, ExecutedAt: at(10)},
+			{Status: StatusFailed, ExecutedAt: at(12)}, // пуш вернул ошибку
+			{Status: StatusFailed},                     // просрочена, пуш не делался
+			{Status: StatusDone, ExecutedAt: at(11)},
+			{Status: StatusPlanned},
+		}}
+		task.FillStats()
+		if task.DoneCommits != 2 || task.FailedCommits != 2 {
+			t.Errorf("done %d failed %d, want 2 and 2", task.DoneCommits, task.FailedCommits)
+		}
+		if task.LastRunAt == nil || !task.LastRunAt.Equal(*at(12)) {
+			t.Errorf("last run %v, want %v", task.LastRunAt, at(12))
+		}
+	})
+
+	t.Run("nothing was executed", func(t *testing.T) {
+		task := Task{PlannedCommits: []PlannedCommit{{Status: StatusPlanned}, {Status: StatusFailed}}}
+		task.FillStats()
+		if task.FailedCommits != 1 || task.LastRunAt != nil {
+			t.Errorf("failed %d last run %v, want 1 and nil", task.FailedCommits, task.LastRunAt)
+		}
+	})
 }

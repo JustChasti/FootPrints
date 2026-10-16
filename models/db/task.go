@@ -25,6 +25,15 @@ func (c Clock) minutes() (int, error) {
 	return t.Hour()*60 + t.Minute(), nil
 }
 
+// At возвращает это время суток на дату day, в часовом поясе day
+func (c Clock) At(day time.Time) (time.Time, error) {
+	m, err := c.minutes()
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Date(day.Year(), day.Month(), day.Day(), m/60, m%60, 0, 0, day.Location()), nil
+}
+
 // TaskParams это поля таски, которые задаёт инженер. Одна структура служит
 // и телом запроса, и частью сущности базы
 type TaskParams struct {
@@ -47,6 +56,32 @@ type Task struct {
 	TaskParams
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// PlannedCommits подгружаются при чтении таски, из них FillStats считает поля ниже
+	PlannedCommits []PlannedCommit `json:"-" gorm:"constraint:OnDelete:CASCADE"`
+
+	// Число удачных коммитов таски за всё сохранённое время
+	DoneCommits int `json:"done_commits" gorm:"-" example:"3"`
+	// Число неудачных коммитов: ошибка пуша или просроченная запись
+	FailedCommits int `json:"failed_commits" gorm:"-" example:"0"`
+	// Время последнего запуска пуша, удачного или нет. Пусто, если запусков не было
+	LastRunAt *time.Time `json:"last_run_at" gorm:"-"`
+}
+
+// FillStats считает счётчики и время последнего запуска по подгруженным PlannedCommits
+func (t *Task) FillStats() {
+	t.DoneCommits, t.FailedCommits, t.LastRunAt = 0, 0, nil
+	for _, c := range t.PlannedCommits {
+		switch c.Status {
+		case StatusDone:
+			t.DoneCommits++
+		case StatusFailed:
+			t.FailedCommits++
+		}
+		if c.ExecutedAt != nil && (t.LastRunAt == nil || c.ExecutedAt.After(*t.LastRunAt)) {
+			t.LastRunAt = c.ExecutedAt
+		}
+	}
 }
 
 // Validate проверяет параметры таски и приводит их к каноническому виду:

@@ -21,6 +21,7 @@ type Config struct {
 	Auth AuthSettings
 	PG   PGSettings
 	API  APISettings
+	Core CoreSettings
 }
 
 // TaskSettings это значения по умолчанию для полей таски, которые не пришли в запросе
@@ -81,6 +82,13 @@ func (s APISettings) Addr() string {
 	return net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 }
 
+// CoreSettings это настройки фоновой горутины
+type CoreSettings struct {
+	// TickInterval период опроса и одновременно шаг сетки, на которую
+	// попадают времена коммитов (CORE_TICK_INTERVAL)
+	TickInterval time.Duration
+}
+
 // Load читает .env (если файла нет, переменные берутся из окружения) и
 // накладывает их на значения по умолчанию
 func Load() (*Config, error) {
@@ -103,7 +111,8 @@ func Load() (*Config, error) {
 			ConnectAttempts: 10,
 			ConnectDelay:    3 * time.Second,
 		},
-		API: APISettings{Host: "0.0.0.0", Port: 8080},
+		API:  APISettings{Host: "0.0.0.0", Port: 8080},
+		Core: CoreSettings{TickInterval: 10 * time.Minute},
 	}
 
 	var errs []error
@@ -124,8 +133,13 @@ func Load() (*Config, error) {
 	envString("API_HOST", &cfg.API.Host)
 	collect(envInt("API_PORT", &cfg.API.Port))
 
+	collect(envDuration("CORE_TICK_INTERVAL", &cfg.Core.TickInterval))
+
 	envString("AUTH_JWT_SECRET", &cfg.Auth.JWTSecret)
 
+	if cfg.Core.TickInterval <= 0 {
+		errs = append(errs, errors.New("CORE_TICK_INTERVAL must be greater than zero"))
+	}
 	if cfg.PG.Password == "" {
 		errs = append(errs, errors.New("PG_PASSWORD is required"))
 	}
